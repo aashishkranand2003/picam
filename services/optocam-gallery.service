@@ -1,0 +1,18 @@
+[Unit]
+Description=OptoCam Gallery Web Server
+Requires=optocam-hotspot.service
+After=optocam-hotspot.service
+PartOf=optocam-hotspot.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/dkumkum
+ExecStart=/usr/bin/python3 /home/dkumkum/gallery_server.py
+Restart=on-failure
+RestartSec=2
+Environment=PYTHONUNBUFFERED=1
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

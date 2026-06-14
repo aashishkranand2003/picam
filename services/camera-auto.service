@@ -1,0 +1,40 @@
+[Unit]
+Description=Optocam Zero Camera System
+DefaultDependencies=false
+After=local-fs.target systemd-modules-load.service systemd-udev-trigger.service
+Before=basic.target network-pre.target network.target NetworkManager.service systemd-networkd.service wpa_supplicant.service dhcpcd.service networking.service ssh.service sshd.service
+ConditionPathExists=/home/dkumkum/optocamzero.py
+RequiresMountsFor=/home/dkumkum
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+Group=root
+WorkingDirectory=/home/dkumkum
+ExecStartPre=/bin/sh -c 'i=0; while [ ! -e /dev/spidev0.0 ] && [ "$i" -lt 20 ]; do sleep 0.05; i=$((i + 1)); done; [ -e /dev/spidev0.0 ]'
+ExecStart=/usr/bin/python3 /home/dkumkum/optocamzero.py
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+Environment=SUDO_USER=dkumkum
+Nice=-10
+IOSchedulingClass=1
+IOSchedulingPriority=4
+NoNewPrivileges=false
+PrivateTmp=true
+ProtectHome=false
+ProtectSystem=false
+ReadWritePaths=/home/dkumkum /tmp /var/log
+SupplementaryGroups=gpio spi i2c video dialout
+TimeoutStartSec=10
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGINT
+FinalKillSignal=SIGKILL
+SendSIGKILL=yes
+
+[Install]
+WantedBy=basic.target

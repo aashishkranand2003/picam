@@ -1,0 +1,23 @@
+[Unit]
+Description=OptoCam WiFi Hotspot
+After=uap0.service
+Requires=uap0.service
+Before=optocam-gallery.service
+Conflicts=hostapd.service
+
+[Service]
+Type=forking
+ExecStartPre=/bin/sh -c 'CH=$(/usr/sbin/iw dev wlan0 info 2>/dev/null | awk "/channel/{print \$2}"); [ -n "$CH" ] && sed -i "s/^channel=.*/channel=$CH/" /etc/hostapd/hostapd.conf || true'
+ExecStartPre=/usr/sbin/ip addr replace 192.168.4.1/24 dev uap0
+ExecStartPre=/usr/sbin/ip link set uap0 up
+ExecStart=/usr/sbin/hostapd -B -P /run/hostapd-optocam.pid /etc/hostapd/hostapd.conf
+ExecStartPost=/bin/systemctl start dnsmasq.service
+ExecStop=-/bin/kill -TERM $MAINPID
+ExecStopPost=-/bin/systemctl stop dnsmasq.service
+ExecStopPost=-/usr/sbin/ip addr flush dev uap0
+PIDFile=/run/hostapd-optocam.pid
+TimeoutStartSec=10
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -23,16 +23,19 @@ echo "User:     $INSTALL_USER"
 echo "Home:     $INSTALL_HOME"
 echo ""
 
-echo -e "${YELLOW}[1/8] Installing system packages...${NC}"
+# ── Step 1 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[1/9] Installing system packages...${NC}"
 apt-get update -q
 apt-get install -y hostapd dnsmasq pigpio python3-pip python3-flask \
-    python3-numpy python3-pil python3-picamera2
+    python3-numpy python3-pil python3-picamera2 git
 
-echo -e "${YELLOW}[2/8] Installing Python packages...${NC}"
+# ── Step 2 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[2/9] Installing Python packages...${NC}"
 pip3 install spidev pigpio --break-system-packages 2>/dev/null || \
 pip3 install spidev pigpio
 
-echo -e "${YELLOW}[3/8] Copying scripts and assets...${NC}"
+# ── Step 3 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[3/9] Copying scripts and assets...${NC}"
 cp "$SCRIPT_DIR/scripts/optocamzero.py"    "$INSTALL_HOME/optocamzero.py"
 cp "$SCRIPT_DIR/scripts/gallery_server.py" "$INSTALL_HOME/gallery_server.py"
 cp "$SCRIPT_DIR/assets/cmunvt.ttf"         "$INSTALL_HOME/cmunvt.ttf"
@@ -51,27 +54,32 @@ chown -R "$INSTALL_USER:$INSTALL_USER" \
     "$INSTALL_HOME/splash.raw" \
     "$INSTALL_HOME/photos"
 
-echo -e "${YELLOW}[4/8] Installing systemd services...${NC}"
+# ── Step 4 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[4/9] Installing systemd services...${NC}"
 for svc in camera-auto optocam-hotspot optocam-gallery uap0; do
     cp "$SCRIPT_DIR/services/$svc.service" "/etc/systemd/system/$svc.service"
     sed -i "s|/home/dkumkum|$INSTALL_HOME|g" "/etc/systemd/system/$svc.service"
     sed -i "s|dkumkum|$INSTALL_USER|g"       "/etc/systemd/system/$svc.service"
 done
 
-echo -e "${YELLOW}[5/8] Configuring hotspot...${NC}"
+# ── Step 5 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[5/9] Configuring hotspot (uap0 virtual AP)...${NC}"
 cp "$SCRIPT_DIR/services/hostapd.conf"         "/etc/hostapd/hostapd.conf"
 cp "$SCRIPT_DIR/services/dnsmasq-optocam.conf" "/etc/dnsmasq.d/optocam.conf"
 
 systemctl unmask hostapd
 sed -i 's|#DAEMON_CONF=.*|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/default/hostapd
 
+# Tell NetworkManager to leave only the virtual AP interface (uap0) alone.
+# wlan0 stays fully managed so the Pi keeps its WiFi connection for SSH.
 mkdir -p /etc/NetworkManager/conf.d
 cat > /etc/NetworkManager/conf.d/optocam-unmanaged.conf << 'EOF'
 [keyfile]
 unmanaged-devices=interface-name:uap0
 EOF
 
-echo -e "${YELLOW}[6/8] Configuring /boot/firmware/config.txt...${NC}"
+# ── Step 6 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[6/9] Configuring /boot/firmware/config.txt...${NC}"
 CONFIG=/boot/firmware/config.txt
 
 sed -i 's/^camera_auto_detect=1/camera_auto_detect=0/' "$CONFIG"
@@ -119,7 +127,8 @@ if ! grep -q "consoleblank" "$CMDLINE"; then
     sed -i 's/$/ consoleblank=0/' "$CMDLINE"
 fi
 
-echo -e "${YELLOW}[7/8] Enabling services and trimming boot time...${NC}"
+# ── Step 7 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[7/9] Enabling services and trimming boot time...${NC}"
 systemctl daemon-reload
 systemctl enable pigpiod
 systemctl enable uap0
@@ -139,7 +148,9 @@ systemctl disable triggerhappy                2>/dev/null || true
 systemctl disable rpi-eeprom-update           2>/dev/null || true
 systemctl disable rsyslog                     2>/dev/null || true
 systemctl disable systemd-timesyncd           2>/dev/null || true
-systemctl disable wpa_supplicant              2>/dev/null || true
+# NOTE: wpa_supplicant is intentionally left ENABLED so wlan0 stays connected
+# to your WiFi network and SSH remains accessible after reboot.
+
 systemctl mask    systemd-rfkill              2>/dev/null || true
 systemctl mask    systemd-rfkill.socket       2>/dev/null || true
 
@@ -151,14 +162,49 @@ DefaultTimeoutStartSec=10s
 DefaultTimeoutStopSec=5s
 EOF
 
+# ── Step 8 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[8/9] Installing ILI9486 display driver (LCD-show)...${NC}"
+echo    "      This configures the kernel framebuffer; reboot happens after."
+
+# Work in /tmp so we don't pollute the repo directory
+LCD_WORK=/tmp/lcd-show-install
+mkdir -p "$LCD_WORK"
+cd "$LCD_WORK"
+
+# Clean any previous attempt
+rm -rf LCD-show
+
+git clone https://github.com/goodtft/LCD-show.git
+chmod -R 755 LCD-show
+cd LCD-show
+
+# The LCD35-show script ends with a 'reboot' call.
+# We patch that line out so THIS script controls when the reboot happens
+# (after we have printed the completion message below).
+sed -i 's/^\s*reboot\b.*/echo "[LCD-show] reboot suppressed — installer will reboot"/' ./LCD35-show
+
+# Run the patched driver installer
+bash ./LCD35-show
+
+cd "$SCRIPT_DIR"
+
+# ── Step 9 ────────────────────────────────────────────────────────────────────
+echo -e "${YELLOW}[9/9] Finalising...${NC}"
+
 echo ""
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  Installation complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo "Camera starts automatically on next boot."
-echo "Hotspot SSID:     Optocam Zero"
-echo "Hotspot password: 0026opto"
-echo "Gallery URL:      http://192.168.4.1  (while connected to hotspot)"
+echo ""
+echo "WiFi / SSH"
+echo "  wlan0 stays connected to your router — SSH works after reboot."
+echo "  Connect to your router's network and SSH in as usual."
+echo ""
+echo "Hotspot (for photo transfer)"
+echo "  SSID:     Optocam Zero"
+echo "  Password: 0026opto"
+echo "  Gallery:  http://192.168.4.1  (while connected to hotspot)"
 echo ""
 echo -e "${YELLOW}Rebooting in 5 seconds... (Ctrl+C to cancel)${NC}"
 sleep 5

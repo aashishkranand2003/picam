@@ -17,15 +17,28 @@ StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1
 Environment=SUDO_USER=dkumkum
-Nice=-10
+
+# ── Priority ──────────────────────────────────────────────────────────────────
+# Nice -15: camera beats every background service for CPU slices.
+Nice=-15
+# CPUWeight 10000 (max 10000, default 100): dominant cgroup CPU share.
+CPUWeight=10000
+# Highest I/O weight for SPI framebuffer writes and SD card photo saves.
 IOSchedulingClass=1
-IOSchedulingPriority=4
+IOSchedulingPriority=2
+IOWeight=1000
+# Never OOM-kill the camera process.
+OOMScoreAdjust=-100
+
+# ── Security (unchanged from original) ───────────────────────────────────────
 NoNewPrivileges=false
 PrivateTmp=true
 ProtectHome=false
 ProtectSystem=false
 ReadWritePaths=/home/dkumkum /tmp /var/log
 SupplementaryGroups=gpio spi i2c video dialout
+
+# ── Timeouts (unchanged) ─────────────────────────────────────────────────────
 TimeoutStartSec=60
 TimeoutStopSec=10
 KillMode=mixed

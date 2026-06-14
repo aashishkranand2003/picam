@@ -1,13 +1,27 @@
 [Unit]
 Description=Create uap0 virtual WiFi AP interface
-After=network.target
+# Wait for the kernel to register the wlan0 device (driver loaded),
+# NOT for the full network stack — that's much earlier and avoids
+# blocking NetworkManager initialisation from stalling this unit.
+After=sys-subsystem-net-devices-wlan0.device
+DefaultDependencies=no
+
+# Keep the ordering declaration for when optocam-hotspot starts on-demand.
 Before=optocam-hotspot.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+
+# Yield CPU and IO to camera-auto for the first 8 seconds of boot.
+# By 8 s the preview is already on screen; this unit then quietly
+# creates the AP interface in the background with no user-visible delay.
+ExecStartPre=/bin/sleep 8
+
 ExecStart=/sbin/iw dev wlan0 interface add uap0 type __ap
 ExecStop=/sbin/iw dev uap0 del
 
 [Install]
+# Still pulled in at multi-user.target but runs after the 8 s sleep,
+# so it never blocks or competes with camera startup.
 WantedBy=multi-user.target

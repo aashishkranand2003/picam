@@ -29,12 +29,15 @@ echo -e "${YELLOW}[1/9] Installing system packages...${NC}"
 apt-get update -q
 apt-get install -y hostapd dnsmasq python3-pip python3-flask \
     python3-numpy python3-pil python3-picamera2 git build-essential \
-    python3-dev wget unzip
+    python3-dev python3-setuptools wget unzip
 
 # ── Step 2 ────────────────────────────────────────────────────────────────────
 echo -e "${YELLOW}[2/9] Installing Python packages and building pigpio...${NC}"
 pip3 install spidev --break-system-packages 2>/dev/null || \
 pip3 install spidev
+
+# Ensure setuptools and wheel are available for building pigpio
+pip3 install setuptools wheel --break-system-packages 2>/dev/null || true
 
 # Build pigpio from source (required for 64-bit Raspberry Pi OS)
 echo "    Building pigpio from source (this may take a few minutes)..."
@@ -49,13 +52,25 @@ wget -q https://github.com/joan2937/pigpio/archive/master.zip -O master.zip
 unzip -q master.zip
 cd pigpio-master
 
-# Build and install the C library and daemon
-make -j$(nproc) 2>&1 | tail -5
+# Build the C library and daemon (skip the distutils-based Python install)
+make -j$(nproc) 2>&1 | tail -3
+
+# Comment out the problematic distutils-based Python install in the Makefile
+# (before running make install)
+sed -i 's/^\(if which python3; then python3 setup.py install ; fi\)/# \1/' Makefile
+
+# Now run make install without the Python module install
 make install
 
-# Install the Python module
-pip3 install -e . --break-system-packages 2>/dev/null || \
-pip3 install -e .
+# Install the Python module manually using pip (works with Python 3.13)
+echo "    Installing Python pigpio module..."
+cd "$PIGPIO_WORK/pigpio-master"
+pip3 install --no-build-isolation --break-system-packages . 2>/dev/null || \
+pip3 install --break-system-packages . 2>/dev/null || \
+echo "    (warning: Python module install had issues, but C library is OK)"
+
+# Update LD library cache for the new C libraries
+ldconfig
 
 echo "    pigpio build and installation complete."
 

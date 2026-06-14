@@ -72,6 +72,23 @@ echo "    (warning: Python module install had issues, but C library is OK)"
 # Update LD library cache for the new C libraries
 ldconfig
 
+# Create and install the pigpiod systemd service file
+echo "    Installing pigpiod systemd service..."
+cat > /etc/systemd/system/pigpiod.service << 'PIGPIO_SERVICE'
+[Unit]
+Description=pigpio daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pigpiod -l -n localhost
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+PIGPIO_SERVICE
+
 echo "    pigpio build and installation complete."
 
 # Return to script directory

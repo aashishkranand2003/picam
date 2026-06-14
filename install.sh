@@ -38,19 +38,15 @@ apt-get install -y --no-install-recommends \
     python3-flask python3-numpy python3-pil python3-picamera2 \
     python3-rpi.gpio python3-spidev
 
-echo -e "${YELLOW}[display] Optional LCD-show vendor setup...${NC}"
-if [ "${INSTALL_LCD_SHOW:-0}" = "1" ]; then
-    LCD_SHOW_DIR=/tmp/LCD-show
-    rm -rf "$LCD_SHOW_DIR"
-    git clone https://github.com/goodtft/LCD-show.git "$LCD_SHOW_DIR"
-    chmod -R 755 "$LCD_SHOW_DIR"
-    (
-        cd "$LCD_SHOW_DIR"
-        ./LCD35-show
-    )
-else
-    echo "Skipping LCD-show. Set INSTALL_LCD_SHOW=1 to clone and run the vendor display installer."
-fi
+echo -e "${YELLOW}[display] Installing GoodTFT LCD-show vendor driver...${NC}"
+LCD_SHOW_DIR=/tmp/LCD-show
+rm -rf "$LCD_SHOW_DIR"
+git clone https://github.com/goodtft/LCD-show.git "$LCD_SHOW_DIR"
+chmod -R 755 "$LCD_SHOW_DIR"
+(
+    cd "$LCD_SHOW_DIR"
+    ./LCD35-show
+)
 
 echo -e "${YELLOW}[2/8] Preparing install paths...${NC}"
 install -d -m 0755 -o "$INSTALL_USER" -g "$INSTALL_GROUP" "$INSTALL_HOME/photos"

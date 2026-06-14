@@ -61,7 +61,7 @@ Type `yes` at the fingerprint prompt and enter your password.
 ```
 sudo apt-get update && sudo apt-get install -y git
 git clone https://github.com/aashishkranand2003/picam.git
-sudo bash picam/software/install.sh
+sudo bash picam/install.sh
 ```
 
 Installation takes 10–15 minutes. The Pi reboots automatically when complete and the camera starts on the next boot.

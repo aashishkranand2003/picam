@@ -8,6 +8,8 @@ def log(msg):
 log("Script file started")
 import RPi.GPIO as GPIO
 log("GPIO imported")
+import pigpio
+log("pigpio imported")
 import spidev
 log("spidev imported")
 import threading
@@ -22,22 +24,15 @@ import gc
 import subprocess
 log("All imports done")
 
-
-def systemd_notify(*messages):
-    notify_socket = os.environ.get("NOTIFY_SOCKET")
-    if not notify_socket:
-        return
-    try:
-        import socket
-        addr = "\0" + notify_socket[1:] if notify_socket.startswith("@") else notify_socket
-        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
-            sock.connect(addr)
-            sock.sendall("\n".join(messages).encode())
-    except Exception as exc:
-        log(f"systemd notify failed: {exc}")
-
-
 GPIO.setwarnings(False)
+GPIO.setmode(GPIO.BCM)
+for pin in [21, 20, 5, 26, 13, 6, 19]:
+    try:
+        GPIO.remove_event_detect(pin)
+    except:
+        pass
+GPIO.cleanup()
+time.sleep(0.2)
 
 RST_PIN = 27
 DC_PIN  = 25
@@ -58,8 +53,9 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setup(RST_PIN, GPIO.OUT)
 GPIO.setup(DC_PIN,  GPIO.OUT)
 GPIO.setup(BL_PIN,  GPIO.OUT)
-_backlight_pwm = GPIO.PWM(BL_PIN, 1000)
-_backlight_pwm.start(100)
+_pi = pigpio.pi()
+_pi.set_PWM_frequency(BL_PIN, 1000)
+_pi.set_PWM_dutycycle(BL_PIN, 255)
 GPIO.setup(BUTTON_PREVIEW,  GPIO.IN, pull_up_down=GPIO.PUD_UP)
 GPIO.setup(BUTTON_CAPTURE,  GPIO.IN, pull_up_down=GPIO.PUD_UP)
 GPIO.setup(JOYSTICK_LEFT,   GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -469,12 +465,11 @@ def init_display():
 
 
 def set_backlight(state):
-    _backlight_pwm.ChangeDutyCycle(100 if state else 0)
+    _pi.set_PWM_dutycycle(BL_PIN, 255 if state else 0)
 
 
 def set_backlight_brightness(pct):
-    pct = max(0, min(100, pct))
-    _backlight_pwm.ChangeDutyCycle(pct)
+    _pi.set_PWM_dutycycle(BL_PIN, int(pct * 2.55))
 
 
 def _set_window(x0, y0, x1, y1):
@@ -566,7 +561,7 @@ def show_transfer_mode_screen():
 
     try:
         result = subprocess.run(
-            ["/usr/sbin/iw", "dev", "uap0", "station", "dump"],
+            ["iw", "dev", "uap0", "station", "dump"],
             capture_output=True, text=True, timeout=1,
         )
         device_count     = result.stdout.count("Station ")
@@ -889,6 +884,7 @@ def capture_full_res(picam2):
 
                 captured_image = hdr_images[len(hdr_images) // 2]
 
+        capturing = False
         print("Preview resuming...")
 
         with _save_active_lock:
@@ -904,10 +900,8 @@ def capture_full_res(picam2):
     except Exception as e:
         print(f"ERROR: {e}")
         import traceback; traceback.print_exc()
-        return None
-    finally:
         capturing = False
-        show_focus = False
+        return None
 
 
 def button_handler():
@@ -1040,10 +1034,8 @@ def button_handler():
                         print("Transfer mode ON")
                         _transfer_last_activity = time.time()
                         _transfer_dimmed        = False
-                        subprocess.Popen([
-                            "systemctl", "start",
-                            "optocam-hotspot.service", "optocam-gallery.service",
-                        ])
+                        subprocess.Popen(["sudo", "systemctl", "start", "optocam-hotspot.service"])
+                        subprocess.Popen(["sudo", "systemctl", "start", "optocam-gallery.service"])
                     else:
                         preview_active = True
                         print("Transfer mode OFF")
@@ -1052,10 +1044,8 @@ def button_handler():
                         _transfer_dimmed    = False
                         _idle_last_activity = time.time()
                         _idle_dimmed        = False
-                        subprocess.Popen([
-                            "systemctl", "stop",
-                            "optocam-gallery.service", "optocam-hotspot.service",
-                        ])
+                        subprocess.Popen(["sudo", "systemctl", "stop", "optocam-hotspot.service"])
+                        subprocess.Popen(["sudo", "systemctl", "stop", "optocam-gallery.service"])
 
             elif not joy_is_down and joy_press_was_down:
                 joy_press_was_down = False
@@ -1243,19 +1233,16 @@ def main():
 
     gc.disable()
 
-    systemd_notify("STATUS=Starting SPI display")
     log("Initializing display...")
     init_display()
     set_backlight(True)
     show_splash()
-    systemd_notify("STATUS=SPI display ready, starting camera")
     log("Display ready")
 
     log("Importing Picamera2...")
     from picamera2 import Picamera2
     log("Picamera2 imported")
 
-    systemd_notify("STATUS=Opening camera")
     picam2 = Picamera2()
     clear_display()
     config_cache = CameraConfigCache(picam2)
@@ -1268,7 +1255,6 @@ def main():
 
     frame_count     = 0
     last_fps_report = time.time()
-    systemd_ready_sent = False
     _idle_last_activity = time.time()
 
     try:
@@ -1347,9 +1333,6 @@ def main():
                         picam2.start()
                         camera_started      = True
                         _idle_last_activity = time.time()
-                        if not systemd_ready_sent:
-                            systemd_notify("READY=1", "STATUS=Preview started")
-                            systemd_ready_sent = True
                         print("Preview started")
 
                 if capture_requested:
@@ -1517,7 +1500,6 @@ def main():
             if camera_started:
                 picam2.stop()
         set_backlight(False)
-        _backlight_pwm.stop()
         GPIO.cleanup()
         spi.close()
         gc.enable()

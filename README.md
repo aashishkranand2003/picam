@@ -66,6 +66,8 @@ sudo bash picam/install.sh
 
 Installation takes 10–15 minutes. The Pi reboots automatically when complete and the camera starts on the next boot.
 
+If you want the vendor GoodTFT display driver step as part of the setup, run the installer with `INSTALL_LCD_SHOW=1`. That clones `LCD-show` and runs `LCD35-show` during the install.
+
 ---
 
 ## Fast boot profile
@@ -76,9 +78,9 @@ On a Raspberry Pi Zero 2W with Raspberry Pi OS Lite and a fast A2 card, this is 
 
 ---
 
-## Display note — no kernel overlay required
+## Display note
 
-The ILI9486 display is driven entirely from userspace via SPI (`/dev/spidev0.0`). There is no `dtoverlay` line needed in `config.txt` for the display. The installer does **not** add one. SPI is enabled via `dtparam=spi=on`, which is all that is required.
+By default, the ILI9486 display is driven entirely from userspace via SPI (`/dev/spidev0.0`). There is no `dtoverlay` line needed in `config.txt` for the display. The installer does **not** add one unless you opt into the vendor LCD-show step. SPI is enabled via `dtparam=spi=on`, which is all that is required for the default path.
 
 The installer also loads the SPI kernel modules at boot, sets `spidev.bufsiz=65536`, and sets the display GPIO defaults:
 
@@ -87,6 +89,8 @@ The installer also loads the SPI kernel modules at boot, sets `spidev.bufsiz=655
 - **RST:** GPIO 27, output high
 
 It also removes the old `st7789`, `spi1-3cs`, and `vc4-kms-v3d`/`vc4-fkms-v3d` display overlays because this build drives the ILI9486 directly from Python over SPI.
+
+If you enable `INSTALL_LCD_SHOW=1`, the installer also clones [GoodTFT LCD-show](https://github.com/goodtft/LCD-show) and runs `LCD35-show` as part of the display setup.
 
 ---
 

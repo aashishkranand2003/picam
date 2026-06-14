@@ -18,6 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo -e "${GREEN}========================================${NC}"
 echo -e "${GREEN}  OptoCamZero Installer${NC}"
 echo -e "${GREEN}  3.5\" ILI9486 480x320 Edition${NC}"
+echo -e "${GREEN}  Raspberry Pi OS Lite 64-bit${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo "User:     $INSTALL_USER"
 echo "Home:     $INSTALL_HOME"
@@ -26,13 +27,40 @@ echo ""
 # ── Step 1 ────────────────────────────────────────────────────────────────────
 echo -e "${YELLOW}[1/9] Installing system packages...${NC}"
 apt-get update -q
-apt-get install -y hostapd dnsmasq pigpio python3-pip python3-flask \
-    python3-numpy python3-pil python3-picamera2 git
+apt-get install -y hostapd dnsmasq python3-pip python3-flask \
+    python3-numpy python3-pil python3-picamera2 git build-essential \
+    python3-dev wget unzip
 
 # ── Step 2 ────────────────────────────────────────────────────────────────────
-echo -e "${YELLOW}[2/9] Installing Python packages...${NC}"
-pip3 install spidev pigpio --break-system-packages 2>/dev/null || \
-pip3 install spidev pigpio
+echo -e "${YELLOW}[2/9] Installing Python packages and building pigpio...${NC}"
+pip3 install spidev --break-system-packages 2>/dev/null || \
+pip3 install spidev
+
+# Build pigpio from source (required for 64-bit Raspberry Pi OS)
+echo "    Building pigpio from source (this may take a few minutes)..."
+PIGPIO_WORK=/tmp/pigpio-build
+mkdir -p "$PIGPIO_WORK"
+cd "$PIGPIO_WORK"
+
+# Clean any previous build
+rm -rf pigpio master.zip 2>/dev/null || true
+
+wget -q https://github.com/joan2937/pigpio/archive/master.zip -O master.zip
+unzip -q master.zip
+cd pigpio-master
+
+# Build and install the C library and daemon
+make -j$(nproc) 2>&1 | tail -5
+make install
+
+# Install the Python module
+pip3 install -e . --break-system-packages 2>/dev/null || \
+pip3 install -e .
+
+echo "    pigpio build and installation complete."
+
+# Return to script directory
+cd "$SCRIPT_DIR"
 
 # ── Step 3 ────────────────────────────────────────────────────────────────────
 echo -e "${YELLOW}[3/9] Copying scripts and assets...${NC}"

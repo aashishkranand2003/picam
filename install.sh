@@ -193,9 +193,12 @@ systemctl daemon-reload
 systemctl enable pigpiod
 systemctl enable uap0
 systemctl enable camera-auto
-systemctl disable optocam-hotspot             2>/dev/null || true
-systemctl disable optocam-gallery             2>/dev/null || true
-systemctl disable hostapd                     2>/dev/null || true
+systemctl enable optocam-hotspot             2>/dev/null || true
+systemctl enable optocam-gallery             2>/dev/null || true
+systemctl enable hostapd                     2>/dev/null || true
+echo -e "${YELLOW}Enabling SSH...${NC}"
+systemctl enable ssh
+systemctl start ssh
 systemctl disable dnsmasq                     2>/dev/null || true
 systemctl disable ModemManager                2>/dev/null || true
 systemctl disable NetworkManager-wait-online  2>/dev/null || true

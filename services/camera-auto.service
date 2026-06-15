@@ -1,8 +1,9 @@
 [Unit]
 Description=Optocam Zero Camera System
-After=local-fs.target pigpiod.service
-Wants=pigpiod.service
-DefaultDependencies=false
+# network-online.target ensures wlan0 is connected before we start, so
+# NetworkManager/wpa_supplicant are not starved for CPU by the camera.
+After=local-fs.target network-online.target pigpiod.service
+Wants=network-online.target pigpiod.service
 ConditionPathExists=/home/dkumkum/optocamzero.py
 
 [Service]
@@ -19,8 +20,9 @@ Environment=PYTHONUNBUFFERED=1
 Environment=SUDO_USER=dkumkum
 
 # ── Priority ──────────────────────────────────────────────────────────────────
-# Nice -15: camera beats every background service for CPU slices.
-Nice=-15
+# Nice -10: camera gets priority but wpa_supplicant can still get CPU
+# to maintain the WiFi connection during boot (needed for SSH).
+Nice=-10
 # CPUWeight 10000 (max 10000, default 100): dominant cgroup CPU share.
 CPUWeight=10000
 # Highest I/O weight for SPI framebuffer writes and SD card photo saves.

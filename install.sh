@@ -29,12 +29,11 @@ echo -e "${YELLOW}[1/9] Installing system packages...${NC}"
 apt-get update -q
 apt-get install -y hostapd dnsmasq python3-pip python3-flask \
     python3-numpy python3-pil python3-picamera2 git build-essential \
-    python3-dev python3-setuptools wget unzip
+    python3-dev python3-setuptools wget unzip openssh-server
 
 # ── Step 2 ────────────────────────────────────────────────────────────────────
 echo -e "${YELLOW}[2/9] Installing Python packages and building pigpio...${NC}"
-pip3 install spidev --break-system-packages 2>/dev/null || \
-pip3 install spidev
+pip3 install spidev --break-system-packages 2>/dev/null || pip3 install spidev
 
 # Ensure setuptools and wheel are available for building pigpio
 pip3 install setuptools wheel --break-system-packages 2>/dev/null || true
@@ -45,43 +44,49 @@ PIGPIO_WORK=/tmp/pigpio-build
 mkdir -p "$PIGPIO_WORK"
 cd "$PIGPIO_WORK"
 
-# Clean any previous build
-rm -rf pigpio master.zip 2>/dev/null || true
+# Clean any previous build (handle interactive unzip prompt non-interactively)
+rm -rf pigpio-master master.zip 2>/dev/null || true
 
 wget -q https://github.com/joan2937/pigpio/archive/master.zip -O master.zip
-unzip -q master.zip
+
+# -o = overwrite without prompting
+unzip -q -o master.zip
 cd pigpio-master
 
-# Build the C library and daemon (skip the distutils-based Python install)
+# Patch the Makefile BEFORE make to remove both the distutils Python 2 and
+# Python 3 setup.py install lines — we install the Python module via pip below
+sed -i \
+    -e 's/^\(if which python2.*setup.py install.*\)$/# \1/' \
+    -e 's/^\(if which python3.*setup.py install.*\)$/# \1/' \
+    Makefile
+
+# Build the C library and daemon
 make -j$(nproc) 2>&1 | tail -3
 
-# Comment out the problematic distutils-based Python install in the Makefile
-# (before running make install)
-sed -i 's/^\(if which python3; then python3 setup.py install ; fi\)/# \1/' Makefile
-
-# Now run make install without the Python module install
+# Install the C library, headers, daemon and man pages
 make install
 
-# Install the Python module manually using pip (works with Python 3.13)
+# Install the Python module via pip (works with Python 3.13 — no distutils)
 echo "    Installing Python pigpio module..."
 cd "$PIGPIO_WORK/pigpio-master"
 pip3 install --no-build-isolation --break-system-packages . 2>/dev/null || \
 pip3 install --break-system-packages . 2>/dev/null || \
-echo "    (warning: Python module install had issues, but C library is OK)"
+echo "    (warning: Python module install had issues, but C library/daemon are fine)"
 
-# Update LD library cache for the new C libraries
+# Refresh the shared-library cache
 ldconfig
 
-# Create and install the pigpiod systemd service file
+# Create the pigpiod systemd service (not shipped in the source-build)
 echo "    Installing pigpiod systemd service..."
 cat > /etc/systemd/system/pigpiod.service << 'PIGPIO_SERVICE'
 [Unit]
 Description=pigpio daemon
-After=network.target
+After=local-fs.target
 
 [Service]
-Type=simple
-ExecStart=/usr/local/bin/pigpiod -l -n localhost
+Type=forking
+ExecStart=/usr/local/bin/pigpiod
+ExecStop=/bin/systemctl kill pigpiod
 Restart=on-failure
 RestartSec=5
 
@@ -127,11 +132,11 @@ echo -e "${YELLOW}[5/9] Configuring hotspot (uap0 virtual AP)...${NC}"
 cp "$SCRIPT_DIR/services/hostapd.conf"         "/etc/hostapd/hostapd.conf"
 cp "$SCRIPT_DIR/services/dnsmasq-optocam.conf" "/etc/dnsmasq.d/optocam.conf"
 
-systemctl unmask hostapd
+systemctl unmask hostapd 2>/dev/null || true
 sed -i 's|#DAEMON_CONF=.*|DAEMON_CONF="/etc/hostapd/hostapd.conf"|' /etc/default/hostapd
 
-# Tell NetworkManager to leave only the virtual AP interface (uap0) alone.
-# wlan0 stays fully managed so the Pi keeps its WiFi connection for SSH.
+# NetworkManager must NOT touch uap0 (the virtual hotspot interface).
+# wlan0 stays fully managed so the Pi keeps its WiFi for SSH.
 mkdir -p /etc/NetworkManager/conf.d
 cat > /etc/NetworkManager/conf.d/optocam-unmanaged.conf << 'EOF'
 [keyfile]
@@ -190,32 +195,43 @@ fi
 # ── Step 7 ────────────────────────────────────────────────────────────────────
 echo -e "${YELLOW}[7/9] Enabling services and trimming boot time...${NC}"
 systemctl daemon-reload
+
+# ── SSH: ensure it is installed, enabled, and running ────────────────────────
+echo "    Ensuring SSH is enabled..."
+systemctl enable ssh
+systemctl start  ssh 2>/dev/null || true
+
+# ── Core camera services ──────────────────────────────────────────────────────
 systemctl enable pigpiod
 systemctl enable uap0
 systemctl enable camera-auto
-systemctl enable optocam-hotspot             2>/dev/null || true
-systemctl enable optocam-gallery             2>/dev/null || true
-systemctl enable hostapd                     2>/dev/null || true
-echo -e "${YELLOW}Enabling SSH...${NC}"
-systemctl enable ssh
-systemctl start ssh
-systemctl disable dnsmasq                     2>/dev/null || true
-systemctl disable ModemManager                2>/dev/null || true
-systemctl disable NetworkManager-wait-online  2>/dev/null || true
-systemctl disable avahi-daemon                2>/dev/null || true
-systemctl disable e2scrub_reap                2>/dev/null || true
-systemctl disable dphys-swapfile              2>/dev/null || true
-systemctl disable bluetooth                   2>/dev/null || true
-systemctl disable hciuart                     2>/dev/null || true
-systemctl disable triggerhappy                2>/dev/null || true
-systemctl disable rpi-eeprom-update           2>/dev/null || true
-systemctl disable rsyslog                     2>/dev/null || true
-systemctl disable systemd-timesyncd           2>/dev/null || true
-# NOTE: wpa_supplicant is intentionally left ENABLED so wlan0 stays connected
-# to your WiFi network and SSH remains accessible after reboot.
 
-systemctl mask    systemd-rfkill              2>/dev/null || true
-systemctl mask    systemd-rfkill.socket       2>/dev/null || true
+# ── Hotspot and gallery: only on demand (toggled from camera UI) ──────────────
+# They are NOT enabled at boot — the camera UI starts them via long-press.
+# (Enabling them at boot would race with wlan0 and break WiFi on startup.)
+systemctl disable optocam-hotspot  2>/dev/null || true
+systemctl disable optocam-gallery  2>/dev/null || true
+# hostapd and dnsmasq are started by optocam-hotspot.service, not directly
+systemctl disable hostapd          2>/dev/null || true
+systemctl disable dnsmasq          2>/dev/null || true
+
+# ── Services that slow boot or conflict with our setup ───────────────────────
+systemctl disable ModemManager               2>/dev/null || true
+systemctl disable NetworkManager-wait-online 2>/dev/null || true
+systemctl disable avahi-daemon               2>/dev/null || true
+systemctl disable e2scrub_reap               2>/dev/null || true
+systemctl disable dphys-swapfile             2>/dev/null || true
+systemctl disable bluetooth                  2>/dev/null || true
+systemctl disable hciuart                    2>/dev/null || true
+systemctl disable triggerhappy               2>/dev/null || true
+systemctl disable rpi-eeprom-update          2>/dev/null || true
+systemctl disable rsyslog                    2>/dev/null || true
+systemctl disable systemd-timesyncd          2>/dev/null || true
+# wpa_supplicant is intentionally LEFT ENABLED — it manages wlan0 WiFi.
+# Disabling it would drop the WiFi connection and break SSH after reboot.
+
+systemctl mask systemd-rfkill        2>/dev/null || true
+systemctl mask systemd-rfkill.socket 2>/dev/null || true
 
 # Reduce systemd default timeout so slow units don't stall boot
 mkdir -p /etc/systemd/system.conf.d
@@ -229,24 +245,19 @@ EOF
 echo -e "${YELLOW}[8/9] Installing ILI9486 display driver (LCD-show)...${NC}"
 echo    "      This configures the kernel framebuffer; reboot happens after."
 
-# Work in /tmp so we don't pollute the repo directory
 LCD_WORK=/tmp/lcd-show-install
 mkdir -p "$LCD_WORK"
 cd "$LCD_WORK"
 
-# Clean any previous attempt
 rm -rf LCD-show
 
 git clone https://github.com/goodtft/LCD-show.git
 chmod -R 755 LCD-show
 cd LCD-show
 
-# The LCD35-show script ends with a 'reboot' call.
-# We patch that line out so THIS script controls when the reboot happens
-# (after we have printed the completion message below).
+# LCD35-show ends with 'reboot' — patch it out so our script reboots last.
 sed -i 's/^\s*reboot\b.*/echo "[LCD-show] reboot suppressed — installer will reboot"/' ./LCD35-show
 
-# Run the patched driver installer
 bash ./LCD35-show
 
 cd "$SCRIPT_DIR"
@@ -260,14 +271,14 @@ echo -e "${GREEN}  Installation complete!${NC}"
 echo -e "${GREEN}========================================${NC}"
 echo "Camera starts automatically on next boot."
 echo ""
-echo "WiFi / SSH"
-echo "  wlan0 stays connected to your router — SSH works after reboot."
-echo "  Connect to your router's network and SSH in as usual."
+echo -e "${GREEN}WiFi / SSH${NC}"
+echo "  wlan0 stays connected to your router."
+echo "  SSH in after reboot:  ssh $INSTALL_USER@$(hostname -I | awk '{print $1}' 2>/dev/null || echo '<pi-ip>')"
 echo ""
-echo "Hotspot (for photo transfer)"
+echo -e "${GREEN}Hotspot (for photo transfer — toggle from camera UI)${NC}"
 echo "  SSID:     Optocam Zero"
 echo "  Password: 0026opto"
-echo "  Gallery:  http://192.168.4.1  (while connected to hotspot)"
+echo "  Gallery:  http://192.168.4.1"
 echo ""
 echo -e "${YELLOW}Rebooting in 5 seconds... (Ctrl+C to cancel)${NC}"
 sleep 5

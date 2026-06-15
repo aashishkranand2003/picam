@@ -1,24 +1,15 @@
 [Unit]
 Description=Create uap0 virtual WiFi AP interface
-# Wait for the wlan0 device to be registered by the kernel before
-# trying to add a virtual AP interface on top of it.
-After=sys-subsystem-net-devices-wlan0.device network.target
+After=sys-subsystem-net-devices-wlan0.device
 Wants=sys-subsystem-net-devices-wlan0.device
-
-# Keep the ordering declaration for when optocam-hotspot starts on-demand.
 Before=optocam-hotspot.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-
-# Short delay so wlan0 is fully associated before we add the AP interface.
-ExecStartPre=/bin/sleep 5
-
+ExecStartPre=/bin/sleep 3
 ExecStart=/sbin/iw dev wlan0 interface add uap0 type __ap
 ExecStop=/sbin/iw dev uap0 del
 
 [Install]
-# Still pulled in at multi-user.target but runs after the 8 s sleep,
-# so it never blocks or competes with camera startup.
 WantedBy=multi-user.target

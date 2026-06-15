@@ -6,10 +6,9 @@ import json
 import time
 import zipfile
 import tempfile
-from flask import Flask, send_from_directory, render_template_string, Response, request, abort
+from flask import Flask, send_from_directory, render_template_string, Response, request
 
 PHOTOS_DIR = "/home/dkumkum/photos"
-HOME_DIR = "/home/dkumkum"
 
 app = Flask(__name__)
 
@@ -757,37 +756,9 @@ document.addEventListener('mouseup', e => {
 </html>"""
 
 
-def clean_photo_name(filename):
-    if not isinstance(filename, str) or not filename:
-        return None
-    if "/" in filename or "\\" in filename or "\x00" in filename:
-        return None
-    name = os.path.basename(filename)
-    if name != filename or not name.lower().endswith(".jpg"):
-        return None
-    return name
-
-
-def photo_path(filename):
-    name = clean_photo_name(filename)
-    if name is None:
-        return None
-    return os.path.join(PHOTOS_DIR, name)
-
-
-def list_photo_files():
-    if not os.path.exists(PHOTOS_DIR):
-        return []
-    return sorted(
-        [f for f in os.listdir(PHOTOS_DIR) if clean_photo_name(f)],
-        key=lambda f: int(f[len("Optocamzero_"):-len(".jpg")]) if f.startswith("Optocamzero_") and f[len("Optocamzero_"):-len(".jpg")].isdigit() else 0,
-        reverse=True
-    )
-
-
 def get_free_space():
     try:
-        path = PHOTOS_DIR if os.path.exists(PHOTOS_DIR) else HOME_DIR
+        path = PHOTOS_DIR if os.path.exists(PHOTOS_DIR) else "/home/dkumkum"
         stat = os.statvfs(path)
         free = stat.f_bavail * stat.f_bsize
         if free >= 1024 ** 3:
@@ -799,7 +770,14 @@ def get_free_space():
 
 @app.route("/")
 def index():
-    files = list_photo_files()
+    if os.path.exists(PHOTOS_DIR):
+        files = sorted(
+            [f for f in os.listdir(PHOTOS_DIR) if f.lower().endswith(".jpg")],
+            key=lambda f: int(f[len("Optocamzero_"):-len(".jpg")]) if f.startswith("Optocamzero_") and f[len("Optocamzero_"):-len(".jpg")].isdigit() else 0,
+            reverse=True
+        )
+    else:
+        files = []
     return render_template_string(
         HTML, files=files, count=len(files),
         free_space=get_free_space(), files_json=json.dumps(files)
@@ -808,49 +786,40 @@ def index():
 
 @app.route("/logo")
 def logo():
-    return send_from_directory(HOME_DIR, "optocamlogo.svg", mimetype="image/svg+xml")
+    return send_from_directory("/home/dkumkum", "optocamlogo.svg", mimetype="image/svg+xml")
 
 
 @app.route("/font/<filename>")
 def font(filename):
-    if filename != "cmunvt.ttf":
-        abort(404)
-    return send_from_directory(HOME_DIR, filename)
+    return send_from_directory("/home/dkumkum", filename)
 
 
 @app.route("/photo/<filename>")
 def photo(filename):
-    name = clean_photo_name(filename)
-    if name is None:
-        abort(404)
-    return send_from_directory(PHOTOS_DIR, name, as_attachment=True)
+    return send_from_directory(PHOTOS_DIR, filename, as_attachment=True)
 
 
 THUMB_DIR = os.path.join(PHOTOS_DIR, ".thumbs")
 
 def get_thumb_path(filename, size):
-    name = clean_photo_name(filename)
-    if name is None:
-        raise ValueError("invalid photo name")
     os.makedirs(THUMB_DIR, exist_ok=True)
-    return os.path.join(THUMB_DIR, f"{name}_{size}.jpg")
+    return os.path.join(THUMB_DIR, f"{filename}_{size}.jpg")
 
 @app.route("/thumb/<filename>")
 def thumb(filename):
-    path = photo_path(filename)
-    if path is None or not os.path.exists(path):
+    path = os.path.join(PHOTOS_DIR, filename)
+    if not os.path.exists(path):
         return "Not found", 404
-    size = request.args.get('size', 400, type=int) or 400
-    size = max(64, min(size, 1200))
+    size = min(request.args.get('size', 400, type=int), 1200)
     cache_path = get_thumb_path(filename, size)
     if not os.path.exists(cache_path) or os.path.getsize(cache_path) == 0:
         from PIL import Image
+        img = Image.open(path)
+        img.thumbnail((size, size))
         tmp = tempfile.NamedTemporaryFile(dir=THUMB_DIR, delete=False, suffix='.tmp')
         try:
-            with Image.open(path) as img:
-                img.thumbnail((size, size))
-                img.save(tmp, "JPEG", quality=75)
-                tmp.close()
+            img.save(tmp, "JPEG", quality=75)
+            tmp.close()
             os.chmod(tmp.name, 0o644)
             os.replace(tmp.name, cache_path)
         except:
@@ -866,20 +835,23 @@ def preload():
     import threading
     from PIL import Image as PILImage
     def generate_all():
-        files = list_photo_files()[:10]  # preload 10 most recent on page load
+        if not os.path.exists(PHOTOS_DIR):
+            return
+        files = sorted(
+            [f for f in os.listdir(PHOTOS_DIR) if f.lower().endswith(".jpg")],
+            key=lambda f: int(f[len("Optocamzero_"):-len(".jpg")]) if f.startswith("Optocamzero_") and f[len("Optocamzero_"):-len(".jpg")].isdigit() else 0,
+            reverse=True
+        )[:10]  # preload 10 most recent on page load
         for filename in files:
             cache_path = get_thumb_path(filename, 1200)
             if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
                 continue
             try:
-                path = photo_path(filename)
-                if path is None or not os.path.exists(path):
-                    continue
+                img = PILImage.open(os.path.join(PHOTOS_DIR, filename))
+                img.thumbnail((1200, 1200))
                 tmp = tempfile.NamedTemporaryFile(dir=THUMB_DIR, delete=False, suffix='.tmp')
-                with PILImage.open(path) as img:
-                    img.thumbnail((1200, 1200))
-                    img.save(tmp, "JPEG", quality=75)
-                    tmp.close()
+                img.save(tmp, "JPEG", quality=75)
+                tmp.close()
                 os.chmod(tmp.name, 0o644)
                 os.replace(tmp.name, cache_path)
             except:
@@ -893,22 +865,22 @@ def preload():
 def preload_ahead():
     import threading
     from PIL import Image as PILImage
-    data = request.get_json(silent=True) or {}
-    filenames = [name for name in (clean_photo_name(f) for f in data.get("files", [])) if name]
+    data = request.get_json()
+    filenames = data.get("files", [])
     def generate():
         for filename in filenames:
             cache_path = get_thumb_path(filename, 1200)
             if os.path.exists(cache_path) and os.path.getsize(cache_path) > 0:
                 continue
             try:
-                path = photo_path(filename)
+                path = os.path.join(PHOTOS_DIR, filename)
                 if not os.path.exists(path):
                     continue
+                img = PILImage.open(path)
+                img.thumbnail((1200, 1200))
                 tmp = tempfile.NamedTemporaryFile(dir=THUMB_DIR, delete=False, suffix='.tmp')
-                with PILImage.open(path) as img:
-                    img.thumbnail((1200, 1200))
-                    img.save(tmp, "JPEG", quality=75)
-                    tmp.close()
+                img.save(tmp, "JPEG", quality=75)
+                tmp.close()
                 os.chmod(tmp.name, 0o644)
                 os.replace(tmp.name, cache_path)
             except:
@@ -919,14 +891,14 @@ def preload_ahead():
 
 @app.route("/delete", methods=["POST"])
 def delete_photos():
-    data = request.get_json(silent=True) or {}
-    filenames = [name for name in (clean_photo_name(f) for f in data.get("files", [])) if name]
+    data = request.get_json()
+    filenames = data.get("files", [])
     for f in filenames:
-        path = photo_path(f)
+        path = os.path.join(PHOTOS_DIR, os.path.basename(f))
         if os.path.exists(path):
             os.remove(path)
         for size in [400, 1200]:
-            cache = get_thumb_path(f, size)
+            cache = get_thumb_path(os.path.basename(f), size)
             if os.path.exists(cache):
                 os.remove(cache)
     return "", 204
@@ -934,11 +906,11 @@ def delete_photos():
 
 @app.route("/download-zip", methods=["POST"])
 def download_zip():
-    filenames = [name for name in (clean_photo_name(f) for f in request.form.getlist("files")) if name]
+    filenames = request.form.getlist("files")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
         for f in filenames:
-            path = photo_path(f)
+            path = os.path.join(PHOTOS_DIR, f)
             if os.path.exists(path):
                 zf.write(path, f)
     buf.seek(0)

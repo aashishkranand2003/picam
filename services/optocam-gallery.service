@@ -1,7 +1,6 @@
 [Unit]
 Description=OptoCam Gallery Web Server
 After=optocam-hotspot.service
-Requires=optocam-hotspot.service
 
 [Service]
 Type=simple

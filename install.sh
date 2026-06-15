@@ -93,8 +93,10 @@ cp "$SCRIPT_DIR/assets/cmunvt.ttf"         "$INSTALL_HOME/cmunvt.ttf"
 cp "$SCRIPT_DIR/assets/optocamlogo.svg"    "$INSTALL_HOME/optocamlogo.svg"
 cp "$SCRIPT_DIR/assets/splash.raw"         "$INSTALL_HOME/splash.raw"
 
-sed -i "s|/home/dkumkum|$INSTALL_HOME|g" "$INSTALL_HOME/optocamzero.py"
-sed -i "s|/home/dkumkum|$INSTALL_HOME|g" "$INSTALL_HOME/gallery_server.py"
+if [ "$INSTALL_HOME" != "/home/aa" ]; then
+    sed -i "s|/home/aa|$INSTALL_HOME|g" "$INSTALL_HOME/optocamzero.py"
+    sed -i "s|/home/aa|$INSTALL_HOME|g" "$INSTALL_HOME/gallery_server.py"
+fi
 
 mkdir -p "$INSTALL_HOME/photos"
 chown -R "$INSTALL_USER:$INSTALL_USER" \
@@ -109,8 +111,10 @@ chown -R "$INSTALL_USER:$INSTALL_USER" \
 echo -e "${YELLOW}[4/9] Installing systemd services...${NC}"
 for svc in camera-auto optocam-hotspot optocam-gallery uap0; do
     cp "$SCRIPT_DIR/services/$svc.service" "/etc/systemd/system/$svc.service"
-    sed -i "s|/home/dkumkum|$INSTALL_HOME|g" "/etc/systemd/system/$svc.service"
-    sed -i "s/\bdkumkum\b/$INSTALL_USER/g"   "/etc/systemd/system/$svc.service"
+    if [ "$INSTALL_HOME" != "/home/aa" ]; then
+        sed -i "s|/home/aa|$INSTALL_HOME|g" "/etc/systemd/system/$svc.service"
+        sed -i "s|SUDO_USER=aa|SUDO_USER=$INSTALL_USER|g" "/etc/systemd/system/$svc.service"
+    fi
 done
 
 # ── Step 5 ────────────────────────────────────────────────────────────────────

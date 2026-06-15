@@ -2,20 +2,20 @@
 Description=Optocam Zero Camera System
 After=local-fs.target network.target pigpiod.service
 Wants=pigpiod.service
-ConditionPathExists=/home/dkumkum/optocamzero.py
+ConditionPathExists=/home/aa/optocamzero.py
 
 [Service]
 Type=simple
 User=root
 Group=root
-WorkingDirectory=/home/dkumkum
-ExecStart=/usr/bin/python3 /home/dkumkum/optocamzero.py
+WorkingDirectory=/home/aa
+ExecStart=/usr/bin/python3 /home/aa/optocamzero.py
 Restart=on-failure
 RestartSec=3
 StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1
-Environment=SUDO_USER=dkumkum
+Environment=SUDO_USER=aa
 Nice=-10
 CPUWeight=500
 IOSchedulingClass=1
@@ -26,7 +26,7 @@ NoNewPrivileges=false
 PrivateTmp=true
 ProtectHome=false
 ProtectSystem=false
-ReadWritePaths=/home/dkumkum /tmp /var/log
+ReadWritePaths=/home/aa /tmp /var/log
 SupplementaryGroups=gpio spi i2c video dialout
 TimeoutStartSec=60
 TimeoutStopSec=10

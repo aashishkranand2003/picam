@@ -101,7 +101,7 @@ class CameraConfigCache:
 
 
 config_cache = None
-FONT_PATH = "/home/dkumkum/cmunvt.ttf"
+FONT_PATH = "/home/aa/cmunvt.ttf"
 
 _shadow_cache = {}
 
@@ -528,7 +528,7 @@ def overlay_capture_dot(base_image):
 
 
 def show_splash():
-    splash_path = "/home/dkumkum/splash.raw"
+    splash_path = "/home/aa/splash.raw"
     expected_bytes = DISP_W * DISP_H * 2
     if os.path.exists(splash_path):
         with open(splash_path, "rb") as f:
@@ -618,7 +618,7 @@ def show_transfer_mode_screen():
     display_image(img)
 
 
-GALLERY_DIR = "/home/dkumkum/photos"
+GALLERY_DIR = "/home/aa/photos"
 
 _capture_counter      = None
 _capture_counter_lock = threading.Lock()
